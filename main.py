@@ -5,10 +5,16 @@ import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from threading import Thread, Event
+from pywinauto import Application, findwindows
+import keyboard
+from dotenv import load_dotenv
+
+load_dotenv()
+ 
 
 
 class GTARadioMonitor:
-    def __init__(self, spotify_client_id=None, spotify_client_secret=None, spotify_redirect_uri="http://localhost:8888/callback"):
+    def __init__(self, spotify_client_id=None, spotify_client_secret=None, spotify_redirect_uri="http://localhost:8888/callback", use_pywinauto=True):
         self.process_name = "gta_sa.exe"
         self.pm = None
         self.is_user_radio = False
@@ -18,16 +24,58 @@ class GTARadioMonitor:
         self.radio_base_address = 0x8CB7A5  # Current radio station address for v1.0
         self.vehicle_check_address = 0xBA18FC  # Player in vehicle check (> 0 = in vehicle, 0 = on foot)
         
-        # Spotify integration
+        # Spotify integration - Method A (Spotify API)
         self.spotify = None
         self.spotify_device_id = None
         self.spotify_enabled = False
         
+        # Spotify integration - Method B (pywinauto)
+        self.use_pywinauto = use_pywinauto
+        self.spotify_app = None
+        self.spotify_pywinauto_enabled = False
+        
+        # Keyboard tracking
+        self.last_arrow_left = False
+        self.last_arrow_right = False
+        
         # Initialize Spotify connection
-        self._init_spotify(spotify_client_id, spotify_client_secret, spotify_redirect_uri)
+        if self.use_pywinauto:
+            self._init_spotify_pywinauto()
+        else:
+            self._init_spotify(spotify_client_id, spotify_client_secret, spotify_redirect_uri)
+    
+    def _init_spotify_pywinauto(self):
+        """Initialize Spotify connection using pywinauto (Method B)"""
+        try:
+            self.spotify_app = self._get_spotify_app()
+            if self.spotify_app:
+                self.spotify_pywinauto_enabled = True
+                print("✓ Spotify connected successfully (Method B - pywinauto)")
+                print("  → Using window automation to control Spotify")
+            else:
+                print("⚠ Spotify not found")
+                print("  → Make sure Spotify desktop app is open")
+                print("  → Spotify integration will work once Spotify is opened")
+        except Exception as e:
+            print(f"⚠ Failed to initialize Spotify (pywinauto): {e}")
+            print("  → Spotify integration will be disabled")
+    
+    def _get_spotify_app(self):
+        """Get Spotify application window using pywinauto"""
+        for process in psutil.process_iter():
+            if "spotify.exe" in process.name().lower():
+                try:
+                    # We iterate to get rid of helper processes with the same name.
+                    # Only the main Spotify window returns find_window()
+                    spotify = findwindows.find_window(process=process.pid)
+                    app = Application(backend="win32").connect(handle=spotify)
+                    return app.top_window()
+                except Exception:
+                    pass
+        return None
     
     def _init_spotify(self, client_id, client_secret, redirect_uri):
-        """Initialize Spotify connection"""
+        """Initialize Spotify connection using Spotify API (Method A)"""
         # Try to get credentials from environment variables if not provided
         if not client_id:
             client_id = os.getenv('SPOTIPY_CLIENT_ID')
@@ -170,6 +218,38 @@ class GTARadioMonitor:
     
     def on_user_radio_activated(self):
         """Callback when User Radio is activated - Start Spotify playback"""
+        if self.use_pywinauto:
+            self._start_spotify_pywinauto()
+        else:
+            self._start_spotify_api()
+    
+    def _start_spotify_pywinauto(self):
+        """Start Spotify playback using pywinauto (Method B)"""
+        if not self.spotify_pywinauto_enabled:
+            # Try to reconnect
+            self.spotify_app = self._get_spotify_app()
+            if self.spotify_app:
+                self.spotify_pywinauto_enabled = True
+            else:
+                print("  ⚠ Spotify not found - Make sure Spotify desktop app is open")
+                return
+        
+        if self.spotify_app:
+            try:
+                # Send Space key to play/pause (will play if paused)
+                self.spotify_app.send_keystrokes("{SPACE}")
+                print("  ✓ Spotify playback started (Method B)")
+            except Exception as e:
+                print(f"  ⚠ Failed to start Spotify playback: {e}")
+                print("  → Trying to reconnect to Spotify...")
+                self.spotify_app = self._get_spotify_app()
+                if self.spotify_app:
+                    self.spotify_pywinauto_enabled = True
+        else:
+            print("  ⚠ Spotify app not available")
+    
+    def _start_spotify_api(self):
+        """Start Spotify playback using Spotify API (Method A)"""
         if self.spotify_enabled and self.spotify:
             try:
                 # Check if already playing
@@ -208,6 +288,32 @@ class GTARadioMonitor:
     
     def on_user_radio_deactivated(self):
         """Callback when User Radio is deactivated - Stop Spotify playback"""
+        if self.use_pywinauto:
+            self._stop_spotify_pywinauto()
+        else:
+            self._stop_spotify_api()
+    
+    def _stop_spotify_pywinauto(self):
+        """Stop Spotify playback using pywinauto (Method B)"""
+        if not self.spotify_pywinauto_enabled:
+            return
+        
+        if self.spotify_app:
+            try:
+                # Send Space key to pause
+                self.spotify_app.send_keystrokes("{SPACE}")
+                print("  ✓ Spotify playback stopped (Method B)")
+            except Exception as e:
+                print(f"  ⚠ Failed to stop Spotify playback: {e}")
+                print("  → Trying to reconnect to Spotify...")
+                self.spotify_app = self._get_spotify_app()
+                if self.spotify_app:
+                    self.spotify_pywinauto_enabled = True
+        else:
+            print("  ⚠ Spotify app not available")
+    
+    def _stop_spotify_api(self):
+        """Stop Spotify playback using Spotify API (Method A)"""
         if self.spotify_enabled and self.spotify:
             try:
                 # Check if already paused
@@ -261,19 +367,103 @@ class GTARadioMonitor:
         except Exception as e:
             print(f"  ⚠ Failed to refresh Spotify devices: {e}")
     
+    def _navigate_spotify_track(self, direction):
+        """Navigate to next/previous track - sends keys directly to Spotify window without changing focus"""
+        if self.use_pywinauto:
+            # Method B: Use pywinauto send_keystrokes (same as SpotifyGlobal - no focus change needed)
+            if not self.spotify_pywinauto_enabled or not self.spotify_app:
+                # Try to reconnect
+                self.spotify_app = self._get_spotify_app()
+                if self.spotify_app:
+                    self.spotify_pywinauto_enabled = True
+                else:
+                    return
+            
+            if self.spotify_app:
+                try:
+                    if direction == "next":
+                        # Ctrl+Right for next track - using pywinauto format
+                        self.spotify_app.send_keystrokes("^({RIGHT})")
+                        print("  ⏭ Next track")
+                    elif direction == "previous":
+                        # Ctrl+Left for previous track
+                        self.spotify_app.send_keystrokes("^({LEFT})")
+                        print("  ⏮ Previous track")
+                except Exception as e:
+                    print(f"  ⚠ Failed to navigate track: {e}")
+                    # Try reconnecting
+                    self.spotify_app = self._get_spotify_app()
+                    if self.spotify_app:
+                        self.spotify_pywinauto_enabled = True
+        else:
+            # Method A: Use Spotify API (doesn't require focus)
+            if self.spotify_enabled and self.spotify:
+                try:
+                    if direction == "next":
+                        self.spotify.next_track(device_id=self.spotify_device_id)
+                        print("  ⏭ Next track")
+                    elif direction == "previous":
+                        self.spotify.previous_track(device_id=self.spotify_device_id)
+                        print("  ⏮ Previous track")
+                except Exception as e:
+                    print(f"  ⚠ Failed to navigate track: {e}")
+    
+    def _setup_keyboard_hotkeys(self):
+        """Setup keyboard hotkeys for track navigation"""
+        try:
+            # Register hotkeys for LEFT and RIGHT arrow keys
+            keyboard.add_hotkey('left', self._on_left_arrow_pressed)
+            keyboard.add_hotkey('right', self._on_right_arrow_pressed)
+            print("✓ Keyboard controls enabled")
+            print("  → LEFT Arrow: Previous track")
+            print("  → RIGHT Arrow: Next track")
+        except Exception as e:
+            print(f"⚠ Failed to setup keyboard hotkeys: {e}")
+            print("  → Keyboard controls will be disabled")
+    
+    def _on_left_arrow_pressed(self):
+        """Handle LEFT arrow key press"""
+        if not self.last_arrow_left:
+            self.last_arrow_left = True
+            if self.is_user_radio:
+                self._navigate_spotify_track("previous")
+            # Reset after a short delay to allow repeated presses
+            Thread(target=self._reset_left_arrow, daemon=True).start()
+    
+    def _on_right_arrow_pressed(self):
+        """Handle RIGHT arrow key press"""
+        if not self.last_arrow_right:
+            self.last_arrow_right = True
+            if self.is_user_radio:
+                self._navigate_spotify_track("next")
+            # Reset after a short delay to allow repeated presses
+            Thread(target=self._reset_right_arrow, daemon=True).start()
+    
+    def _reset_left_arrow(self):
+        """Reset left arrow flag after a delay"""
+        time.sleep(0.3)
+        self.last_arrow_left = False
+    
+    def _reset_right_arrow(self):
+        """Reset right arrow flag after a delay"""
+        time.sleep(0.3)
+        self.last_arrow_right = False
+    
     def start(self):
         """Start the monitoring thread"""
         self.running.set()
         monitor_thread = Thread(target=self.monitor_loop, daemon=True)
         monitor_thread.start()
+        
+        # Setup keyboard hotkeys
+        self._setup_keyboard_hotkeys()
+        
         return monitor_thread
     
     def stop(self):
         """Stop monitoring"""
         self.running.clear()
-        print("=" * 60)
         print("Stopping GTA SA Radio Monitor...")
-        print("=" * 60)
     
     def get_status(self):
         """Get current User Radio status"""
@@ -281,7 +471,18 @@ class GTARadioMonitor:
 
 
 if __name__ == "__main__":    
-    monitor = GTARadioMonitor()
+    # Read method selection from .env file
+    # SPOTIFY_METHOD can be "pywinauto" (Method B) or "api" (Method A)
+    # Defaults to "pywinauto" if not set
+    spotify_method = os.getenv('SPOTIFY_METHOD', 'pywinauto').lower()
+    use_pywinauto = spotify_method == 'pywinauto'
+    
+    if use_pywinauto:
+        print("Using Method B: pywinauto (window automation)")
+    else:
+        print("Using Method A: Spotify API")
+    
+    monitor = GTARadioMonitor(use_pywinauto=use_pywinauto)
     thread = monitor.start()
     
     try:

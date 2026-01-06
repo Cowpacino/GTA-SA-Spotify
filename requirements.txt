@@ -1,3 +1,6 @@
 psutil
 pymem
 spotipy
+keyboard
+pywinauto
+python-dotenv
