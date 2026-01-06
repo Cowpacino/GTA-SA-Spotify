@@ -98,9 +98,10 @@ This method uses Spotify's Web API for more reliable control. Requires Spotify P
 2. Go to Options → Audio Setup → User Track Options
 3. Click "Scan User Tracks"
 4. Set Play Mode to "Sequential"
-5. Run the script: `python main.py`
-6. Switch to user radio station in-game
-7. Spotify will automatically play the corresponding playlist
+5. Launch Spotify
+6. Run the script: `python main.py`
+7. Switch to user radio station in-game
+8. Spotify will automatically start the playback
 
 ## Troubleshooting
 
@@ -111,7 +112,7 @@ This method uses Spotify's Web API for more reliable control. Requires Spotify P
 ## Project Structure
 ```
 .
-├── asset/              # Dummy silenced Audio files for GTA radio detection
+├── asset/              # Silenced dummy Audio files for GTA radio detection
 ├── main.py             # Main script
 ├── config.ini          # Configuration file
 ├── requirements.txt    # Python dependencies
