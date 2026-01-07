@@ -120,6 +120,10 @@ This method uses Spotify's Web API for more reliable control. Requires Spotify P
 └── README.md          # This file
 ```
 
+## Acknowledgements
+
+This project uses the local Spotify playback control implementation from [SpotifyGlobal](https://github.com/mavvos/SpotifyGlobal) for Method 1's desktop control functionality.
+
 ## Feedback and Contribution
 
 Any Feedback is apperciated! Please open an issue or submit a pull request.
